@@ -1,5 +1,6 @@
 import type { ClueStatus, Cell, Coord, Direction } from "@crossy/shared";
 import { entryAnswer } from "@crossy/shared";
+import { ClueDrafts } from "./ClueDrafts";
 
 export interface EntryView {
   id: number;
@@ -22,9 +23,11 @@ interface Props {
   /** Entry containing the cursor in the current direction, if any. */
   activeEntryId: number | null;
   onSelect: (entry: EntryView) => void;
+  /** Drafts changed; refresh statuses. */
+  onCluesChanged: () => void;
 }
 
-export function ClueSidebar({ entries, cells, clueStatus, activeEntryId, onSelect }: Props) {
+export function ClueSidebar({ entries, cells, clueStatus, activeEntryId, onSelect, onCluesChanged }: Props) {
   const column = (direction: Direction) => {
     const list = entries.filter((e) => e.direction === direction).sort((a, b) => a.number - b.number);
     return (
@@ -68,10 +71,18 @@ export function ClueSidebar({ entries, cells, clueStatus, activeEntryId, onSelec
       </div>
     );
   };
+  const activeEntry = entries.find((e) => e.id === activeEntryId);
   return (
     <aside style={{ minWidth: 240, maxWidth: 320, maxHeight: "80vh", overflowY: "auto" }}>
       {column("across")}
       {column("down")}
+      {activeEntry && (
+        <ClueDrafts
+          entryId={activeEntry.id}
+          label={`${activeEntry.number}-${activeEntry.direction}`}
+          onChanged={onCluesChanged}
+        />
+      )}
     </aside>
   );
 }
