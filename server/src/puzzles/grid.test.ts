@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createDb, runMigrations, type Db } from "../db/index.js";
-import { createPuzzle, createUser } from "../db/queries.js";
+import { createPuzzle, createUser, getEntries } from "../db/queries.js";
+import { clueDrafts } from "../db/schema.js";
 import { hashPassword } from "../auth/password.js";
 import { createGridRoutes } from "./grid.js";
 import type { AuthConfig } from "../auth/index.js";
@@ -103,5 +104,19 @@ describe("grid routes", () => {
     const cell = data.cells.find((c: any) => c.row === 0 && c.col === 1);
     expect(cell.isBlock).toBe(true);
     expect(cell.letter).toBeNull();
+  });
+
+  it("returns clue status per entry derived from drafts", async () => {
+    await req(`/api/puzzles/${puzzleId}`, "GET"); // syncs entries
+    const [a, b, c] = getEntries(db, puzzleId);
+    db.insert(clueDrafts).values({ entryId: b!.id, text: "x" }).run();
+    db.insert(clueDrafts).values({ entryId: c!.id, text: "y", isChosen: true, bothApproved: true }).run();
+    const res = await req(`/api/puzzles/${puzzleId}/clues`, "GET");
+    const { clueStatus } = (await res.json()) as { clueStatus: Record<number, string> };
+    expect(clueStatus[a!.id]).toBe("none");
+    expect(clueStatus[b!.id]).toBe("drafted");
+    expect(clueStatus[c!.id]).toBe("both-approved");
+    const full = (await (await req(`/api/puzzles/${puzzleId}`, "GET")).json()) as { clueStatus: Record<number, string> };
+    expect(full.clueStatus[b!.id]).toBe("drafted");
   });
 });

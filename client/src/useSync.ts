@@ -12,7 +12,7 @@ interface Options {
   /** Called when the server fans out persisted cell changes from another client. */
   onCells: (cells: Cell[]) => void;
   /** Called when numbering/entries change (after a block edit anywhere). */
-  onEntries?: (numbers: Record<string, number>) => void;
+  onEntries?: (numbers: Record<string, number>, entries: unknown[]) => void;
 }
 
 /**
@@ -56,7 +56,7 @@ export function useSync({ puzzleId, onCells, onEntries }: Options) {
             onCellsRef.current(msg.cells as Cell[]);
             break;
           case "entries":
-            onEntriesRef.current?.(msg.numbers as Record<string, number>);
+            onEntriesRef.current?.(msg.numbers as Record<string, number>, (msg.entries ?? []) as unknown[]);
             break;
           case "peers":
             setPeers(msg.peers as Peer[]);
