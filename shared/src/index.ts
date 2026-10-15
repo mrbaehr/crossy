@@ -1,6 +1,8 @@
 // Shared types and pure logic used by client, server, and the fill Web Worker.
 // Grid logic (symmetry, numbering, stats, export) lands here as pure, unit-tested functions.
 
+export * from "./grid/symmetry.js";
+
 export type PuzzleStatus =
   | "idea"
   | "filling"
