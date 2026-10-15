@@ -151,9 +151,6 @@ export function GridEditor({ puzzleId, onBack }: Props) {
         </span>
       </div>
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        <button type="button" onClick={() => { void toggleBlock(cursor.row, cursor.col); svgRef.current?.focus(); }}>
-          ■ Toggle block
-        </button>
         <span style={{ fontSize: 12, color: connected ? "#2b8a3e" : "#999" }}>
           {connected ? "● live" : "○ connecting…"}
         </span>
@@ -164,7 +161,7 @@ export function GridEditor({ puzzleId, onBack }: Props) {
         ))}
       </div>
       <p style={{ color: "#666", fontSize: 13, marginTop: 0 }}>
-        Type letters · <kbd>Space</kbd> toggle direction · <kbd>.</kbd> or the button toggles a block · arrows to move · click a cell
+        Type letters · <kbd>Space</kbd> toggle direction · <kbd>.</kbd> toggle block · arrows to move · click a cell
       </p>
       <svg
         ref={svgRef}
