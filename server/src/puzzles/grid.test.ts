@@ -37,12 +37,15 @@ describe("grid routes", () => {
     expect(res.status).toBe(401);
   });
 
-  it("loads a puzzle with its (initially empty) cells", async () => {
+  it("loads a puzzle with numbers and entries", async () => {
     const res = await req(`/api/puzzles/${puzzleId}`, "GET");
     expect(res.status).toBe(200);
     const data = (await res.json()) as any;
     expect(data.puzzle.id).toBe(puzzleId);
     expect(Array.isArray(data.cells)).toBe(true);
+    // Open 5x5 -> (0,0) is #1; entries derived.
+    expect(data.numbers["0,0"]).toBe(1);
+    expect(data.entries.length).toBeGreaterThan(0);
   });
 
   it("toggles a block and mirrors it symmetrically (atomic)", async () => {
@@ -68,6 +71,29 @@ describe("grid routes", () => {
   it("rejects out-of-bounds edits", async () => {
     const res = await req(`/api/puzzles/${puzzleId}/letter`, "PUT", { row: 99, col: 0, letter: "a" });
     expect(res.status).toBe(400);
+  });
+
+  it("renumbers entries when a block is added", async () => {
+    const before = (await (await req(`/api/puzzles/${puzzleId}`, "GET")).json()) as any;
+    const res = await req(`/api/puzzles/${puzzleId}/block`, "PUT", { row: 2, col: 2 });
+    const after = (await res.json()) as any;
+    expect(after.numbers).toBeDefined();
+    expect(after.entries.length).toBeGreaterThanOrEqual(before.entries.length);
+  });
+
+  it("trashes, hides from list, and restores a puzzle", async () => {
+    // delete
+    expect((await req(`/api/puzzles/${puzzleId}`, "DELETE")).status).toBe(200);
+    const activeList = (await (await req(`/api/puzzles`, "GET")).json()) as any;
+    expect(activeList.puzzles.find((p: any) => p.id === puzzleId)).toBeUndefined();
+    const trash = (await (await req(`/api/puzzles/trash`, "GET")).json()) as any;
+    expect(trash.puzzles.find((p: any) => p.id === puzzleId)).toBeDefined();
+    // trashed puzzle 404s on open
+    expect((await req(`/api/puzzles/${puzzleId}`, "GET")).status).toBe(404);
+    // restore
+    expect((await req(`/api/puzzles/${puzzleId}/restore`, "POST")).status).toBe(200);
+    const restored = (await (await req(`/api/puzzles`, "GET")).json()) as any;
+    expect(restored.puzzles.find((p: any) => p.id === puzzleId)).toBeDefined();
   });
 
   it("clears the letter when a cell becomes a block", async () => {

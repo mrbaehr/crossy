@@ -80,6 +80,8 @@ export const puzzles = sqliteTable("puzzle", {
     onDelete: "set null",
   }),
   lastEditedAt: integer("last_edited_at").notNull().default(now),
+  // Soft-delete timestamp (null = active). Trash, not real GC.
+  deletedAt: integer("deleted_at"),
   createdAt,
 });
 

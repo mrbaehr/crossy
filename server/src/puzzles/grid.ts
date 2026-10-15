@@ -3,7 +3,17 @@ import { eq } from "drizzle-orm";
 import { toggleBlock, cellKey, type BlockGrid } from "@crossy/shared";
 import { requireAuth, type AuthConfig, type AuthEnv } from "../auth/index.js";
 import type { Db } from "../db/index.js";
-import { getCells, getPuzzle, listPuzzles, upsertCell } from "../db/queries.js";
+import {
+  getCells,
+  getEntries,
+  getPuzzle,
+  listPuzzles,
+  listTrashedPuzzles,
+  restorePuzzle,
+  softDeletePuzzle,
+  syncEntries,
+  upsertCell,
+} from "../db/queries.js";
 import { puzzles } from "../db/schema.js";
 import type { SyncHub } from "../sync/hub.js";
 
@@ -16,18 +26,40 @@ export function createGridRoutes(db: Db, config: AuthConfig, hub?: SyncHub) {
   const app = new Hono<AuthEnv>();
   const auth = requireAuth(db, config);
 
-  // List puzzles (for the open-a-puzzle UI).
+  // List active puzzles (for the open-a-puzzle UI).
   app.get("/api/puzzles", auth, (c) => {
     return c.json({ puzzles: listPuzzles(db) });
   });
 
-  // Load one puzzle with all its cells.
+  // Trash: list deleted puzzles.
+  app.get("/api/puzzles/trash", auth, (c) => {
+    return c.json({ puzzles: listTrashedPuzzles(db) });
+  });
+
+  // Soft-delete a puzzle (moves it to trash).
+  app.delete("/api/puzzles/:id", auth, (c) => {
+    const id = Number(c.req.param("id"));
+    if (!getPuzzle(db, id)) return c.json({ error: "not found" }, 404);
+    softDeletePuzzle(db, id);
+    return c.json({ ok: true });
+  });
+
+  // Restore a puzzle from trash.
+  app.post("/api/puzzles/:id/restore", auth, (c) => {
+    const id = Number(c.req.param("id"));
+    if (!getPuzzle(db, id)) return c.json({ error: "not found" }, 404);
+    restorePuzzle(db, id);
+    return c.json({ ok: true });
+  });
+
+  // Load one puzzle with all its cells, derived numbers, and entries.
   app.get("/api/puzzles/:id", auth, (c) => {
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
     const puzzle = getPuzzle(db, id);
-    if (!puzzle) return c.json({ error: "not found" }, 404);
-    return c.json({ puzzle, cells: getCells(db, id) });
+    if (!puzzle || puzzle.deletedAt) return c.json({ error: "not found" }, 404);
+    const { numbers } = syncEntries(db, id, puzzle.width, puzzle.height);
+    return c.json({ puzzle, cells: getCells(db, id), numbers, entries: getEntries(db, id) });
   });
 
   // Set a letter (or clear it) in a single cell.
@@ -98,8 +130,11 @@ export function createGridRoutes(db: Db, config: AuthConfig, hub?: SyncHub) {
     });
     const userId = c.get("user").id;
     touch(db, id, userId);
+    // Blocks changed -> renumber + reconcile entries, and tell the room.
+    const { numbers, entries } = syncEntries(db, id, puzzle.width, puzzle.height);
     hub?.broadcastCells(id, written, userId);
-    return c.json({ cells: written });
+    hub?.broadcastEntries(id, numbers, entries);
+    return c.json({ cells: written, numbers, entries });
   });
 
   return app;

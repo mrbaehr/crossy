@@ -2,6 +2,7 @@
 // Grid logic (symmetry, numbering, stats, export) lands here as pure, unit-tested functions.
 
 export * from "./grid/symmetry.js";
+export * from "./grid/numbering.js";
 
 export type PuzzleStatus =
   | "idea"

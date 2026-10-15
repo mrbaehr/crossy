@@ -19,6 +19,7 @@ export interface Client {
 
 type ServerMessage =
   | { type: "cells"; cells: Cell[]; by: number }
+  | { type: "entries"; numbers: Record<string, number>; entries: unknown[] }
   | { type: "presence"; userId: number; username: string; cursor: { row: number; col: number } | null }
   | { type: "peers"; peers: Array<{ userId: number; username: string; cursor?: { row: number; col: number } }> }
   | { type: "left"; userId: number };
@@ -52,6 +53,11 @@ export class SyncHub {
   /** Fan out persisted cell changes to everyone else in the room. */
   broadcastCells(puzzleId: number, cells: Cell[], byUserId: number): void {
     this.broadcast(puzzleId, { type: "cells", cells, by: byUserId });
+  }
+
+  /** Fan out renumbering + entry changes after a block edit. */
+  broadcastEntries(puzzleId: number, numbers: Record<string, number>, entries: unknown[]): void {
+    this.broadcast(puzzleId, { type: "entries", numbers, entries });
   }
 
   /** Relay a presence update (cursor move / selection) to the rest of the room. */
