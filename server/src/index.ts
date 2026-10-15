@@ -4,13 +4,18 @@ import { Hono } from "hono";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { authConfigFromEnv, createAuthRoutes, seedUsers } from "./auth/index.js";
 import { createDb, runMigrations } from "./db/index.js";
 
 // Apply migrations on boot so the DB on the Fly volume is always current.
 const db = createDb();
 runMigrations(db);
 
+seedUsers(db, process.env.USERS);
+const authConfig = authConfigFromEnv();
+
 const app = new Hono();
+app.route("/", createAuthRoutes(db, authConfig));
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "crossy" }));
 

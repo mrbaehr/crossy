@@ -22,6 +22,20 @@ export function getUserByUsername(db: Db, username: string) {
   return db.select().from(users).where(eq(users.username, username)).get();
 }
 
+export function getUserById(db: Db, id: number) {
+  return db.select().from(users).where(eq(users.id, id)).get();
+}
+
+/** Create the user, or update only the password hash if the username exists (keeps NYT fields). */
+export function upsertUserByUsername(db: Db, username: string, passwordHash: string) {
+  return db
+    .insert(users)
+    .values({ username, passwordHash })
+    .onConflictDoUpdate({ target: users.username, set: { passwordHash } })
+    .returning()
+    .get();
+}
+
 // --- puzzles ---
 
 export function createPuzzle(
