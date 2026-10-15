@@ -63,6 +63,7 @@ export function ClueDrafts({ entryId, label, onChanged }: Props) {
   }
 
   const btn = { fontSize: 11, cursor: "pointer" } as const;
+  const accent = (d: DraftView) => (d.bothApproved ? "#2b8a3e" : d.isChosen ? "#1971c2" : "#e0e0e0");
   return (
     <section data-testid="clue-drafts" style={{ borderTop: "1px solid #ccc", paddingTop: 8, fontSize: 13 }}>
       <h3 style={{ margin: "0 0 4px", fontSize: 14 }}>Clues for {label}</h3>
@@ -74,9 +75,11 @@ export function ClueDrafts({ entryId, label, onChanged }: Props) {
             data-testid={`draft-${d.id}`}
             style={{
               marginBottom: 6,
-              padding: 4,
-              border: `1px solid ${d.bothApproved ? "#2b8a3e" : d.isChosen ? "#1971c2" : "#ddd"}`,
+              padding: "6px 8px",
+              border: "1px solid #e0e0e0",
+              borderLeft: `3px solid ${accent(d)}`,
               borderRadius: 4,
+              background: d.isChosen ? "#f5f9ff" : "#fff",
             }}
           >
             {editing?.id === d.id ? (
@@ -97,38 +100,46 @@ export function ClueDrafts({ entryId, label, onChanged }: Props) {
               </form>
             ) : (
               <>
-                <div>{d.text}</div>
-                <div style={{ fontSize: 11, color: "#666" }}>
-                  — {d.authorKind === "ai" ? "AI" : (d.authorName ?? "unknown")}
-                  {d.isChosen && <strong style={{ color: "#1971c2" }}> · chosen</strong>}
-                  {d.bothApproved && <strong style={{ color: "#2b8a3e" }}> · both approved</strong>}
-                </div>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 2 }}>
-                  <label style={{ fontSize: 11 }}>
-                    <input
-                      type="radio"
-                      name={`chosen-${entryId}`}
-                      checked={d.isChosen}
-                      onChange={() => void call(`/api/clues/${d.id}`, "PUT", { isChosen: true })}
-                    />{" "}
-                    chosen
-                  </label>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ flex: 1 }}>{d.text}</span>
                   {d.isChosen && (
-                    <button style={btn} onClick={() => void call(`/api/clues/${d.id}`, "PUT", { isChosen: false })}>
-                      unchoose
-                    </button>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: accent(d), whiteSpace: "nowrap" }}>
+                      {d.bothApproved ? "✓ APPROVED" : "CHOSEN"}
+                    </span>
                   )}
-                  <label style={{ fontSize: 11, opacity: d.isChosen ? 1 : 0.5 }}>
-                    <input
-                      type="checkbox"
-                      disabled={!d.isChosen}
-                      checked={d.bothApproved}
-                      onChange={(e) => void call(`/api/clues/${d.id}`, "PUT", { bothApproved: e.target.checked })}
-                    />{" "}
-                    both approved
-                  </label>
-                  <button style={btn} onClick={() => setEditing({ id: d.id, text: d.text })}>edit</button>
-                  <button style={btn} onClick={() => void call(`/api/clues/${d.id}`, "DELETE")}>delete</button>
+                </div>
+                <div style={{ fontSize: 11, color: "#888", marginTop: 1 }}>
+                  {d.authorKind === "ai" ? "AI" : (d.authorName ?? "unknown")}
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 4 }}>
+                  <button
+                    style={{
+                      ...btn,
+                      fontWeight: d.isChosen ? 600 : 400,
+                      color: d.isChosen ? "#1971c2" : "#555",
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                    }}
+                    onClick={() =>
+                      void call(`/api/clues/${d.id}`, "PUT", { isChosen: !d.isChosen })
+                    }
+                  >
+                    {d.isChosen ? "★ chosen" : "☆ choose"}
+                  </button>
+                  {d.isChosen && (
+                    <label style={{ fontSize: 11, color: "#555", display: "flex", alignItems: "center", gap: 3 }}>
+                      <input
+                        type="checkbox"
+                        checked={d.bothApproved}
+                        onChange={(e) => void call(`/api/clues/${d.id}`, "PUT", { bothApproved: e.target.checked })}
+                      />
+                      both approved
+                    </label>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  <button style={{ ...btn, background: "none", border: "none", color: "#555", padding: 0 }} onClick={() => setEditing({ id: d.id, text: d.text })}>edit</button>
+                  <button style={{ ...btn, background: "none", border: "none", color: "#b00", padding: 0 }} onClick={() => void call(`/api/clues/${d.id}`, "DELETE")}>delete</button>
                 </div>
               </>
             )}
