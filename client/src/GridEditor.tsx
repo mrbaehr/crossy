@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Cell, ClueStatus, Puzzle } from "@crossy/shared";
 import { ClueSidebar, type EntryView } from "./ClueSidebar";
+import { fetchExportData, exportPuz, exportPdf } from "./export";
 import { useSync } from "./useSync";
 
 type Dir = "across" | "down";
@@ -189,6 +190,16 @@ export function GridEditor({ puzzleId, onBack }: Props) {
   }
   if (!puzzle) return <p>Loading…</p>;
 
+  async function doExport(kind: "puz" | "pdf-blank" | "pdf-filled") {
+    try {
+      const data = await fetchExportData(puzzleId);
+      if (kind === "puz") exportPuz(data);
+      else exportPdf(data, kind === "pdf-filled");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "export failed");
+    }
+  }
+
   const w = puzzle.width * CELL;
   const h = puzzle.height * CELL;
 
@@ -200,6 +211,10 @@ export function GridEditor({ puzzleId, onBack }: Props) {
         <span style={{ color: "#666", fontSize: 13 }}>
           {puzzle.width}×{puzzle.height} · symmetry {puzzle.symmetryEnabled ? "on" : "off"} · typing {dir}
         </span>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => void doExport("puz")} style={{ fontSize: 12 }}>⬇ .puz</button>
+        <button onClick={() => void doExport("pdf-blank")} style={{ fontSize: 12 }}>⬇ PDF (blank)</button>
+        <button onClick={() => void doExport("pdf-filled")} style={{ fontSize: 12 }}>⬇ PDF (filled)</button>
       </div>
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.5rem" }}>
         <span style={{ fontSize: 12, color: connected ? "#2b8a3e" : "#999" }}>
