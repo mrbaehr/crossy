@@ -20,6 +20,7 @@ const CELL = 34; // px
 export function GridEditor({ puzzleId, onBack }: Props) {
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
   const [cells, setCells] = useState<Map<string, Cell>>(new Map());
+  const [numbers, setNumbers] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<{ row: number; col: number }>({ row: 0, col: 0 });
   const [dir, setDir] = useState<Dir>("across");
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +39,7 @@ export function GridEditor({ puzzleId, onBack }: Props) {
     const map = new Map<string, Cell>();
     for (const cell of data.cells as Cell[]) map.set(key(cell.row, cell.col), cell);
     setCells(map);
+    setNumbers(data.numbers ?? {});
   }, [puzzleId]);
 
   useEffect(() => {
@@ -57,7 +59,11 @@ export function GridEditor({ puzzleId, onBack }: Props) {
   }, []);
 
   // Realtime: apply remote edits, track peers, broadcast our cursor.
-  const { peers, connected, sendCursor } = useSync({ puzzleId, onCells: mergeCells });
+  const { peers, connected, sendCursor } = useSync({
+    puzzleId,
+    onCells: mergeCells,
+    onEntries: (nums) => setNumbers(nums),
+  });
 
   useEffect(() => {
     sendCursor(cursor);
@@ -80,7 +86,11 @@ export function GridEditor({ puzzleId, onBack }: Props) {
       credentials: "same-origin",
       body: JSON.stringify({ row: r, col: c }),
     });
-    if (res.ok) mergeCells((await res.json()).cells);
+    if (res.ok) {
+      const data = await res.json();
+      mergeCells(data.cells);
+      if (data.numbers) setNumbers(data.numbers);
+    }
   }
 
   function advance(r: number, c: number): { row: number; col: number } {
@@ -189,6 +199,17 @@ export function GridEditor({ puzzleId, onBack }: Props) {
                   stroke="#999"
                   strokeWidth={0.5}
                 />
+                {!isBlock && numbers[key(r, c)] && (
+                  <text
+                    x={c * CELL + 2}
+                    y={r * CELL + 9}
+                    fontSize={CELL * 0.26}
+                    fontFamily="system-ui, sans-serif"
+                    fill="#333"
+                  >
+                    {numbers[key(r, c)]}
+                  </text>
+                )}
                 {cell?.isCircled && !isBlock && (
                   <circle cx={c * CELL + CELL / 2} cy={r * CELL + CELL / 2} r={CELL / 2 - 2} fill="none" stroke="#333" strokeWidth={0.75} />
                 )}

@@ -1,4 +1,5 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, isNotNull } from "drizzle-orm";
+import { numberGrid, cellKey, type BlockGrid } from "@crossy/shared";
 import type { Db } from "./index.js";
 import {
   cells,
@@ -57,7 +58,19 @@ export function getPuzzle(db: Db, id: number) {
 }
 
 export function listPuzzles(db: Db) {
-  return db.select().from(puzzles).all();
+  return db.select().from(puzzles).where(isNull(puzzles.deletedAt)).all();
+}
+
+export function listTrashedPuzzles(db: Db) {
+  return db.select().from(puzzles).where(isNotNull(puzzles.deletedAt)).all();
+}
+
+export function softDeletePuzzle(db: Db, id: number) {
+  db.update(puzzles).set({ deletedAt: Math.floor(Date.now() / 1000) }).where(eq(puzzles.id, id)).run();
+}
+
+export function restorePuzzle(db: Db, id: number) {
+  db.update(puzzles).set({ deletedAt: null }).where(eq(puzzles.id, id)).run();
 }
 
 // --- cells ---
@@ -88,6 +101,64 @@ export function getCells(db: Db, puzzleId: number) {
 
 export function getEntries(db: Db, puzzleId: number) {
   return db.select().from(entries).where(eq(entries.puzzleId, puzzleId)).all();
+}
+
+/**
+ * Recompute numbering from the current cells and reconcile the `entry` table.
+ * Entries are matched by (direction, start cell) so a row's clues survive
+ * renumbering when blocks change elsewhere. Returns the derived entries +
+ * number map for the client.
+ */
+export function syncEntries(db: Db, puzzleId: number, width: number, height: number) {
+  const existing = getCells(db, puzzleId);
+  const grid: BlockGrid = {
+    width,
+    height,
+    blocks: new Set(existing.filter((c) => c.isBlock).map((c) => cellKey(c.row, c.col))),
+  };
+  const { numbers, entries: derived } = numberGrid(grid);
+
+  const startKey = (e: { direction: string; cells: { row: number; col: number }[] }) =>
+    `${e.direction}:${e.cells[0]!.row},${e.cells[0]!.col}`;
+
+  const current = getEntries(db, puzzleId);
+  const currentByStart = new Map(current.map((e) => [`${e.direction}:${(e.cells as any)[0].row},${(e.cells as any)[0].col}`, e]));
+  const desiredKeys = new Set(derived.map(startKey));
+
+  // Delete entries whose start cell no longer begins a slot (cascades clue drafts).
+  for (const e of current) {
+    const k = `${e.direction}:${(e.cells as any)[0].row},${(e.cells as any)[0].col}`;
+    if (!desiredKeys.has(k)) {
+      db.delete(entries).where(eq(entries.id, e.id)).run();
+    }
+  }
+
+  // Move all surviving entries to a temporary high number range first, so
+  // reassigning final numbers can't transiently collide on the
+  // (puzzle, direction, number) unique index during renumbering.
+  const OFFSET = 100000;
+  for (const e of current) {
+    if (desiredKeys.has(`${e.direction}:${(e.cells as any)[0].row},${(e.cells as any)[0].col}`)) {
+      db.update(entries).set({ number: e.number + OFFSET }).where(eq(entries.id, e.id)).run();
+    }
+  }
+
+  // Now set final numbers/cells; insert any new entries.
+  for (const d of derived) {
+    const prev = currentByStart.get(startKey(d));
+    if (prev) {
+      db.update(entries)
+        .set({ number: d.number, cells: d.cells })
+        .where(eq(entries.id, prev.id))
+        .run();
+    } else {
+      db.insert(entries)
+        .values({ puzzleId, direction: d.direction, number: d.number, cells: d.cells })
+        .run();
+    }
+  }
+
+  return { numbers: Object.fromEntries(numbers), entries: getEntries(db, puzzleId) };
 }
 
 export function getChosenClue(db: Db, entryId: number) {

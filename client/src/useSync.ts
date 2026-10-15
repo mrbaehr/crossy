@@ -11,18 +11,22 @@ interface Options {
   puzzleId: number;
   /** Called when the server fans out persisted cell changes from another client. */
   onCells: (cells: Cell[]) => void;
+  /** Called when numbering/entries change (after a block edit anywhere). */
+  onEntries?: (numbers: Record<string, number>) => void;
 }
 
 /**
  * Connects to /ws for a puzzle, applies remote cell updates, tracks peer presence,
  * and exposes a `sendCursor` to broadcast our selection. Auto-reconnects on drop.
  */
-export function useSync({ puzzleId, onCells }: Options) {
+export function useSync({ puzzleId, onCells, onEntries }: Options) {
   const [peers, setPeers] = useState<Peer[]>([]);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const onCellsRef = useRef(onCells);
   onCellsRef.current = onCells;
+  const onEntriesRef = useRef(onEntries);
+  onEntriesRef.current = onEntries;
 
   useEffect(() => {
     let closed = false;
@@ -50,6 +54,9 @@ export function useSync({ puzzleId, onCells }: Options) {
         switch (msg.type) {
           case "cells":
             onCellsRef.current(msg.cells as Cell[]);
+            break;
+          case "entries":
+            onEntriesRef.current?.(msg.numbers as Record<string, number>);
             break;
           case "peers":
             setPeers(msg.peers as Peer[]);
