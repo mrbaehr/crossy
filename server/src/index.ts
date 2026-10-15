@@ -8,6 +8,8 @@ import { authConfigFromEnv, createAuthRoutes, seedUsers } from "./auth/index.js"
 import { createPuzzleRoutes } from "./puzzles/index.js";
 import { createGridRoutes } from "./puzzles/grid.js";
 import { createDb, runMigrations } from "./db/index.js";
+import { SyncHub } from "./sync/hub.js";
+import { attachSyncServer } from "./sync/server.js";
 
 // Apply migrations on boot so the DB on the Fly volume is always current.
 const db = createDb();
@@ -18,8 +20,9 @@ const authConfig = authConfigFromEnv();
 
 const app = new Hono();
 app.route("/", createAuthRoutes(db, authConfig));
+const hub = new SyncHub();
 app.route("/", createPuzzleRoutes(db, authConfig));
-app.route("/", createGridRoutes(db, authConfig));
+app.route("/", createGridRoutes(db, authConfig, hub));
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "crossy" }));
 
@@ -36,8 +39,11 @@ if (existsSync(clientDist)) {
 }
 
 const port = Number(process.env.PORT ?? 3000);
-serve({ fetch: app.fetch, port }, (info) => {
+const httpServer = serve({ fetch: app.fetch, port }, (info) => {
   console.log(`crossy server listening on http://localhost:${info.port}`);
 });
+
+// Attach the realtime WebSocket server to the same HTTP server.
+attachSyncServer(httpServer as unknown as import("node:http").Server, db, authConfig, hub);
 
 export { app };
