@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { authConfigFromEnv, createAuthRoutes, seedUsers } from "./auth/index.js";
 import { createPuzzleRoutes } from "./puzzles/index.js";
+import { createGridRoutes } from "./puzzles/grid.js";
 import { createDb, runMigrations } from "./db/index.js";
 
 // Apply migrations on boot so the DB on the Fly volume is always current.
@@ -18,6 +19,7 @@ const authConfig = authConfigFromEnv();
 const app = new Hono();
 app.route("/", createAuthRoutes(db, authConfig));
 app.route("/", createPuzzleRoutes(db, authConfig));
+app.route("/", createGridRoutes(db, authConfig));
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "crossy" }));
 
