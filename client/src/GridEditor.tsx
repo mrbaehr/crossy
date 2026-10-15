@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Cell, Puzzle } from "@crossy/shared";
+import type { Cell, ClueStatus, Puzzle } from "@crossy/shared";
+import { ClueSidebar, type EntryView } from "./ClueSidebar";
 import { useSync } from "./useSync";
 
 type Dir = "across" | "down";
@@ -23,6 +24,8 @@ export function GridEditor({ puzzleId, onBack }: Props) {
   const [numbers, setNumbers] = useState<Record<string, number>>({});
   const [cursor, setCursor] = useState<{ row: number; col: number }>({ row: 0, col: 0 });
   const [dir, setDir] = useState<Dir>("across");
+  const [entries, setEntries] = useState<EntryView[]>([]);
+  const [clueStatus, setClueStatus] = useState<Record<number, ClueStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -40,7 +43,26 @@ export function GridEditor({ puzzleId, onBack }: Props) {
     for (const cell of data.cells as Cell[]) map.set(key(cell.row, cell.col), cell);
     setCells(map);
     setNumbers(data.numbers ?? {});
+    setEntries(data.entries ?? []);
+    setClueStatus(data.clueStatus ?? {});
   }, [puzzleId]);
+
+  // Refresh clue statuses (drafts/approvals change). Called on entry changes,
+  // window focus, and periodically until draft events are broadcast (#16).
+  const refreshClues = useCallback(async () => {
+    const res = await fetch(`/api/puzzles/${puzzleId}/clues`, { credentials: "same-origin" });
+    if (res.ok) setClueStatus((await res.json()).clueStatus ?? {});
+  }, [puzzleId]);
+
+  useEffect(() => {
+    const t = setInterval(() => void refreshClues(), 10000);
+    const onFocus = () => void refreshClues();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refreshClues]);
 
   useEffect(() => {
     void load();
@@ -62,7 +84,11 @@ export function GridEditor({ puzzleId, onBack }: Props) {
   const { peers, connected, sendCursor } = useSync({
     puzzleId,
     onCells: mergeCells,
-    onEntries: (nums) => setNumbers(nums),
+    onEntries: (nums, ents) => {
+      setNumbers(nums);
+      setEntries(ents as EntryView[]);
+      void refreshClues();
+    },
   });
 
   useEffect(() => {
@@ -90,6 +116,10 @@ export function GridEditor({ puzzleId, onBack }: Props) {
       const data = await res.json();
       mergeCells(data.cells);
       if (data.numbers) setNumbers(data.numbers);
+      if (data.entries) {
+        setEntries(data.entries);
+        void refreshClues();
+      }
     }
   }
 
@@ -138,6 +168,17 @@ export function GridEditor({ puzzleId, onBack }: Props) {
     }
   }
 
+  const activeEntry = entries.find(
+    (e) => e.direction === dir && e.cells.some((c) => c.row === cursor.row && c.col === cursor.col),
+  );
+
+  function selectEntry(e: EntryView) {
+    setDir(e.direction);
+    const first = e.cells.find((c) => !cells.get(key(c.row, c.col))?.letter) ?? e.cells[0]!;
+    setCursor({ row: first.row, col: first.col });
+    svgRef.current?.focus();
+  }
+
   if (error) {
     return (
       <div>
@@ -173,6 +214,8 @@ export function GridEditor({ puzzleId, onBack }: Props) {
       <p style={{ color: "#666", fontSize: 13, marginTop: 0 }}>
         Type letters · <kbd>Space</kbd> toggle direction · <kbd>.</kbd> toggle block · arrows to move · click a cell
       </p>
+      <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start", flexWrap: "wrap" }}>
+      <div style={{ flex: "1 1 360px", minWidth: 0, maxWidth: w }}>
       <svg
         ref={svgRef}
         tabIndex={0}
@@ -243,6 +286,15 @@ export function GridEditor({ puzzleId, onBack }: Props) {
           />
         ))}
       </svg>
+      </div>
+      <ClueSidebar
+        entries={entries}
+        cells={cells}
+        clueStatus={clueStatus}
+        activeEntryId={activeEntry?.id ?? null}
+        onSelect={selectEntry}
+      />
+      </div>
     </div>
   );
 }

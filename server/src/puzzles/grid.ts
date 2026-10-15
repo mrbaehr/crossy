@@ -5,6 +5,7 @@ import { requireAuth, type AuthConfig, type AuthEnv } from "../auth/index.js";
 import type { Db } from "../db/index.js";
 import {
   getCells,
+  getClueStatusMap,
   getEntries,
   getPuzzle,
   listPuzzles,
@@ -59,7 +60,22 @@ export function createGridRoutes(db: Db, config: AuthConfig, hub?: SyncHub) {
     const puzzle = getPuzzle(db, id);
     if (!puzzle || puzzle.deletedAt) return c.json({ error: "not found" }, 404);
     const { numbers } = syncEntries(db, id, puzzle.width, puzzle.height);
-    return c.json({ puzzle, cells: getCells(db, id), numbers, entries: getEntries(db, id) });
+    return c.json({
+      puzzle,
+      cells: getCells(db, id),
+      numbers,
+      entries: getEntries(db, id),
+      clueStatus: getClueStatusMap(db, id),
+    });
+  });
+
+  // Lightweight clue-status map: { clueStatus: { [entryId]: "none"|"drafted"|"chosen"|"both-approved" } }
+  app.get("/api/puzzles/:id/clues", auth, (c) => {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id)) return c.json({ error: "bad id" }, 400);
+    const puzzle = getPuzzle(db, id);
+    if (!puzzle || puzzle.deletedAt) return c.json({ error: "not found" }, 404);
+    return c.json({ clueStatus: getClueStatusMap(db, id) });
   });
 
   // Set a letter (or clear it) in a single cell.

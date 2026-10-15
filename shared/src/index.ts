@@ -3,6 +3,7 @@
 
 export * from "./grid/symmetry.js";
 export * from "./grid/numbering.js";
+export * from "./clues.js";
 
 export type PuzzleStatus =
   | "idea"

@@ -1,5 +1,5 @@
 import { and, eq, isNull, isNotNull } from "drizzle-orm";
-import { numberGrid, cellKey, type BlockGrid } from "@crossy/shared";
+import { numberGrid, cellKey, deriveClueStatus, type BlockGrid, type ClueStatus } from "@crossy/shared";
 import type { Db } from "./index.js";
 import {
   cells,
@@ -167,4 +167,27 @@ export function getChosenClue(db: Db, entryId: number) {
     .from(clueDrafts)
     .where(and(eq(clueDrafts.entryId, entryId), eq(clueDrafts.isChosen, true)))
     .get();
+}
+
+/** Clue status per entry id for a puzzle, derived from clue drafts. */
+export function getClueStatusMap(db: Db, puzzleId: number): Record<number, ClueStatus> {
+  const rows = db
+    .select({
+      entryId: clueDrafts.entryId,
+      isChosen: clueDrafts.isChosen,
+      bothApproved: clueDrafts.bothApproved,
+    })
+    .from(clueDrafts)
+    .innerJoin(entries, eq(entries.id, clueDrafts.entryId))
+    .where(eq(entries.puzzleId, puzzleId))
+    .all();
+  const byEntry = new Map<number, { isChosen: boolean; bothApproved: boolean }[]>();
+  for (const r of rows) {
+    const list = byEntry.get(r.entryId) ?? [];
+    list.push(r);
+    byEntry.set(r.entryId, list);
+  }
+  const out: Record<number, ClueStatus> = {};
+  for (const e of getEntries(db, puzzleId)) out[e.id] = deriveClueStatus(byEntry.get(e.id) ?? []);
+  return out;
 }
