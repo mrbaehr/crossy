@@ -20,6 +20,38 @@ export const NYT_LIMITS = {
   sunday21: { maxWords: 140 },
 } as const;
 
+export type Direction = "across" | "down";
+export type AuthorKind = "user" | "ai";
+
+/** Coordinate used in entry.cells and client grid logic. */
+export interface Coord {
+  row: number;
+  col: number;
+}
+
+/** Client-facing puzzle shape (mirrors the server `puzzle` row). */
+export interface Puzzle {
+  id: number;
+  title: string;
+  width: number;
+  height: number;
+  symmetryEnabled: boolean;
+  status: PuzzleStatus;
+  lastEditedBy: number | null;
+  lastEditedAt: number;
+}
+
+/** Client-facing cell shape (mirrors the server `cell` row). */
+export interface Cell {
+  row: number;
+  col: number;
+  letter: string | null;
+  isBlock: boolean;
+  rebus: string | null;
+  isCircled: boolean;
+  isShaded: boolean;
+}
+
 /** Placeholder pure function proving the shared package + test wiring. Replaced by real grid logic. */
 export function isSquareGrid(size: PuzzleSize): boolean {
   return size.width === size.height;

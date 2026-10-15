@@ -4,10 +4,17 @@ import { Hono } from "hono";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createDb, runMigrations } from "./db/index.js";
+
+// Apply migrations on boot so the DB on the Fly volume is always current.
+const db = createDb();
+runMigrations(db);
 
 const app = new Hono();
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "crossy" }));
+
+export { db };
 
 // In production, serve the built client. In dev, the Vite server handles the client.
 const __dirname = dirname(fileURLToPath(import.meta.url));
