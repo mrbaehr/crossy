@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Local env & secrets
+.env
+.env.*
+!.env.example
+
+# SQLite (lives on the Fly volume / local, never committed)
+*.sqlite
+*.sqlite-*
+*.db
+data/
+
+# Word lists (per-install, licensing may be unclear — never commit)
+wordlists/
+*.dict
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
