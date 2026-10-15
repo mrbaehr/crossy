@@ -5,6 +5,7 @@ import { requireAuth, type AuthConfig, type AuthEnv } from "../auth/index.js";
 import type { Db } from "../db/index.js";
 import {
   getCells,
+  getChosenClue,
   getClueStatusMap,
   getEntries,
   getPuzzle,
@@ -76,6 +77,19 @@ export function createGridRoutes(db: Db, config: AuthConfig, hub?: SyncHub) {
     const puzzle = getPuzzle(db, id);
     if (!puzzle || puzzle.deletedAt) return c.json({ error: "not found" }, 404);
     return c.json({ clueStatus: getClueStatusMap(db, id) });
+  });
+
+  // Export data: cells, numbered entries, and the chosen clue per entry.
+  app.get("/api/puzzles/:id/export", auth, (c) => {
+    const id = Number(c.req.param("id"));
+    const puzzle = getPuzzle(db, id);
+    if (!puzzle || puzzle.deletedAt) return c.json({ error: "not found" }, 404);
+    const { numbers } = syncEntries(db, id, puzzle.width, puzzle.height);
+    const entries = getEntries(db, id).map((e) => {
+      const chosen = getChosenClue(db, e.id);
+      return { ...e, clue: chosen?.text ?? "" };
+    });
+    return c.json({ puzzle, cells: getCells(db, id), numbers, entries });
   });
 
   // Set a letter (or clear it) in a single cell.
