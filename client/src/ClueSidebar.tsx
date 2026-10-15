@@ -73,16 +73,33 @@ export function ClueSidebar({ entries, cells, clueStatus, activeEntryId, onSelec
   };
   const activeEntry = entries.find((e) => e.id === activeEntryId);
   return (
-    <aside style={{ minWidth: 240, maxWidth: 320, maxHeight: "80vh", overflowY: "auto" }}>
-      {column("across")}
-      {column("down")}
-      {activeEntry && (
-        <ClueDrafts
-          entryId={activeEntry.id}
-          label={`${activeEntry.number}-${activeEntry.direction}`}
-          onChanged={onCluesChanged}
-        />
-      )}
+    <aside
+      style={{
+        minWidth: 240,
+        maxWidth: 320,
+        maxHeight: "80vh",
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.75rem",
+      }}
+    >
+      {/* Drafter pinned at the top, aligned with the puzzle, so it stays put. */}
+      <div style={{ flex: "0 0 auto" }}>
+        {activeEntry ? (
+          <ClueDrafts
+            entryId={activeEntry.id}
+            label={`${activeEntry.number}-${activeEntry.direction}`}
+            onChanged={onCluesChanged}
+          />
+        ) : (
+          <p style={{ margin: 0, fontSize: 13, color: "#999" }}>Select an entry to draft its clue.</p>
+        )}
+      </div>
+      {/* Entry stack scrolls below the drafter. */}
+      <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto", borderTop: "1px solid #eee", paddingTop: "0.5rem" }}>
+        {column("across")}
+        {column("down")}
+      </div>
     </aside>
   );
 }
