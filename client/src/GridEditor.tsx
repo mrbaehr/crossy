@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Cell, Puzzle } from "@crossy/shared";
+import { useSync } from "./useSync";
 
 type Dir = "across" | "down";
+
+// Distinct colors for up to a few peer cursors.
+const PEER_COLORS = ["#e8590c", "#9c36b5", "#2b8a3e", "#1971c2"];
+function peerColor(userId: number): string {
+  return PEER_COLORS[userId % PEER_COLORS.length]!;
+}
 
 interface Props {
   puzzleId: number;
@@ -41,13 +48,20 @@ export function GridEditor({ puzzleId, onBack }: Props) {
     return cells.get(key(r, c));
   }
 
-  function mergeCells(updated: Cell[]) {
+  const mergeCells = useCallback((updated: Cell[]) => {
     setCells((prev) => {
       const next = new Map(prev);
-      for (const cell of updated) next.set(key(cell.row, cell.col), cell);
+      for (const cell of updated) next.set(`${cell.row},${cell.col}`, cell);
       return next;
     });
-  }
+  }, []);
+
+  // Realtime: apply remote edits, track peers, broadcast our cursor.
+  const { peers, connected, sendCursor } = useSync({ puzzleId, onCells: mergeCells });
+
+  useEffect(() => {
+    sendCursor(cursor);
+  }, [cursor, sendCursor]);
 
   async function putLetter(r: number, c: number, letter: string | null) {
     const res = await fetch(`/api/puzzles/${puzzleId}/letter`, {
@@ -136,8 +150,21 @@ export function GridEditor({ puzzleId, onBack }: Props) {
           {puzzle.width}×{puzzle.height} · symmetry {puzzle.symmetryEnabled ? "on" : "off"} · typing {dir}
         </span>
       </div>
+      <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+        <button type="button" onClick={() => { void toggleBlock(cursor.row, cursor.col); svgRef.current?.focus(); }}>
+          ■ Toggle block
+        </button>
+        <span style={{ fontSize: 12, color: connected ? "#2b8a3e" : "#999" }}>
+          {connected ? "● live" : "○ connecting…"}
+        </span>
+        {peers.map((p) => (
+          <span key={p.userId} style={{ fontSize: 12, color: peerColor(p.userId) }}>
+            ● {p.username}
+          </span>
+        ))}
+      </div>
       <p style={{ color: "#666", fontSize: 13, marginTop: 0 }}>
-        Type letters · <kbd>Space</kbd> toggle direction · <kbd>.</kbd> toggle block · arrows to move · click a cell
+        Type letters · <kbd>Space</kbd> toggle direction · <kbd>.</kbd> or the button toggles a block · arrows to move · click a cell
       </p>
       <svg
         ref={svgRef}
@@ -183,6 +210,20 @@ export function GridEditor({ puzzleId, onBack }: Props) {
             );
           }),
         )}
+        {/* Peer cursors on top of the grid. */}
+        {peers.filter((p) => p.cursor).map((p) => (
+          <rect
+            key={`peer-${p.userId}`}
+            x={p.cursor!.col * CELL + 1}
+            y={p.cursor!.row * CELL + 1}
+            width={CELL - 2}
+            height={CELL - 2}
+            fill="none"
+            stroke={peerColor(p.userId)}
+            strokeWidth={2.5}
+            pointerEvents="none"
+          />
+        ))}
       </svg>
     </div>
   );

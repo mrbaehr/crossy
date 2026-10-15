@@ -5,13 +5,14 @@ import { requireAuth, type AuthConfig, type AuthEnv } from "../auth/index.js";
 import type { Db } from "../db/index.js";
 import { getCells, getPuzzle, listPuzzles, upsertCell } from "../db/queries.js";
 import { puzzles } from "../db/schema.js";
+import type { SyncHub } from "../sync/hub.js";
 
 /**
  * Grid read/write routes. Server is authoritative: block toggles run through the
  * shared symmetry engine so the mirror is applied atomically here (not trusted
  * from the client). Letter edits are a simple per-cell write.
  */
-export function createGridRoutes(db: Db, config: AuthConfig) {
+export function createGridRoutes(db: Db, config: AuthConfig, hub?: SyncHub) {
   const app = new Hono<AuthEnv>();
   const auth = requireAuth(db, config);
 
@@ -55,7 +56,9 @@ export function createGridRoutes(db: Db, config: AuthConfig) {
       isShaded: prev?.isShaded ?? false,
       rebus: prev?.rebus ?? null,
     });
-    touch(db, id, c.get("user").id);
+    const userId = c.get("user").id;
+    touch(db, id, userId);
+    hub?.broadcastCells(id, [cell], userId);
     return c.json({ cells: [cell] });
   });
 
@@ -93,7 +96,9 @@ export function createGridRoutes(db: Db, config: AuthConfig) {
         isShaded: prev?.isShaded ?? false,
       });
     });
-    touch(db, id, c.get("user").id);
+    const userId = c.get("user").id;
+    touch(db, id, userId);
+    hub?.broadcastCells(id, written, userId);
     return c.json({ cells: written });
   });
 
