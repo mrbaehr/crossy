@@ -293,6 +293,7 @@ export function GridEditor({ puzzleId, onBack }: Props) {
         clueStatus={clueStatus}
         activeEntryId={activeEntry?.id ?? null}
         onSelect={selectEntry}
+        onCluesChanged={() => void refreshClues()}
       />
       </div>
     </div>

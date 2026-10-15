@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { authConfigFromEnv, createAuthRoutes, seedUsers } from "./auth/index.js";
 import { createPuzzleRoutes } from "./puzzles/index.js";
 import { createGridRoutes } from "./puzzles/grid.js";
+import { createClueRoutes } from "./clues/index.js";
 import { createDb, runMigrations } from "./db/index.js";
 import { SyncHub } from "./sync/hub.js";
 import { attachSyncServer } from "./sync/server.js";
@@ -23,6 +24,7 @@ app.route("/", createAuthRoutes(db, authConfig));
 const hub = new SyncHub();
 app.route("/", createPuzzleRoutes(db, authConfig));
 app.route("/", createGridRoutes(db, authConfig, hub));
+app.route("/", createClueRoutes(db, authConfig));
 
 app.get("/api/health", (c) => c.json({ ok: true, service: "crossy" }));
 

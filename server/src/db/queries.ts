@@ -1,4 +1,4 @@
-import { and, eq, isNull, isNotNull } from "drizzle-orm";
+import { and, eq, ne, isNull, isNotNull } from "drizzle-orm";
 import { numberGrid, cellKey, deriveClueStatus, type BlockGrid, type ClueStatus } from "@crossy/shared";
 import type { Db } from "./index.js";
 import {
@@ -190,4 +190,92 @@ export function getClueStatusMap(db: Db, puzzleId: number): Record<number, ClueS
   const out: Record<number, ClueStatus> = {};
   for (const e of getEntries(db, puzzleId)) out[e.id] = deriveClueStatus(byEntry.get(e.id) ?? []);
   return out;
+}
+
+// --- clue drafts (#16) ---
+
+export function getEntry(db: Db, id: number) {
+  return db.select().from(entries).where(eq(entries.id, id)).get();
+}
+
+export function getClueDraft(db: Db, id: number) {
+  return db.select().from(clueDrafts).where(eq(clueDrafts.id, id)).get();
+}
+
+/** Drafts for an entry with author usernames ("AI" for AI drafts). */
+export function listClueDrafts(db: Db, entryId: number) {
+  return db
+    .select({
+      id: clueDrafts.id,
+      entryId: clueDrafts.entryId,
+      text: clueDrafts.text,
+      authorUserId: clueDrafts.authorUserId,
+      authorKind: clueDrafts.authorKind,
+      authorName: users.username,
+      isChosen: clueDrafts.isChosen,
+      bothApproved: clueDrafts.bothApproved,
+    })
+    .from(clueDrafts)
+    .leftJoin(users, eq(users.id, clueDrafts.authorUserId))
+    .where(eq(clueDrafts.entryId, entryId))
+    .orderBy(clueDrafts.id)
+    .all();
+}
+
+export function addClueDraft(
+  db: Db,
+  input: { entryId: number; text: string; authorUserId: number | null; authorKind?: "user" | "ai" },
+) {
+  return db
+    .insert(clueDrafts)
+    .values({ authorKind: "user", ...input })
+    .returning()
+    .get();
+}
+
+export interface ClueDraftPatch {
+  text?: string;
+  isChosen?: boolean;
+  bothApproved?: boolean;
+}
+
+/**
+ * Apply a patch in one transaction, keeping the invariants:
+ * - at most one chosen draft per entry (choosing clears the others, and their approval);
+ * - bothApproved only on the chosen draft (unchoosing or editing text clears it).
+ * Returns the updated draft, or an error string for an invalid request.
+ */
+export function updateClueDraft(db: Db, id: number, patch: ClueDraftPatch) {
+  return db.transaction((tx) => {
+    const draft = tx.select().from(clueDrafts).where(eq(clueDrafts.id, id)).get();
+    if (!draft) return { error: "not found" as const };
+    const set: Partial<typeof draft> = {};
+    if (patch.text !== undefined && patch.text !== draft.text) {
+      set.text = patch.text;
+      set.bothApproved = false; // text changed -> approval no longer applies
+    }
+    if (patch.isChosen === true) {
+      tx.update(clueDrafts)
+        .set({ isChosen: false, bothApproved: false })
+        .where(and(eq(clueDrafts.entryId, draft.entryId), ne(clueDrafts.id, id)))
+        .run();
+      set.isChosen = true;
+    } else if (patch.isChosen === false) {
+      set.isChosen = false;
+      set.bothApproved = false;
+    }
+    if (patch.bothApproved !== undefined) {
+      const chosen = set.isChosen ?? draft.isChosen;
+      if (patch.bothApproved && !chosen) return { error: "only the chosen draft can be approved" as const };
+      set.bothApproved = patch.bothApproved;
+    }
+    if (Object.keys(set).length > 0) {
+      tx.update(clueDrafts).set(set).where(eq(clueDrafts.id, id)).run();
+    }
+    return { draft: tx.select().from(clueDrafts).where(eq(clueDrafts.id, id)).get()! };
+  });
+}
+
+export function deleteClueDraft(db: Db, id: number) {
+  db.delete(clueDrafts).where(eq(clueDrafts.id, id)).run();
 }
