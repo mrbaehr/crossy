@@ -25,9 +25,9 @@ and the Web Worker all reuse one definition.
 
 Nine tables. Multi-user structure exists now even though there are two users.
 
-- **user** — id, username, password hash. Seeded from env.
+- **user** — id, username, password hash, plus NYT submission fields: `full_name`, `last_name`, `address`, `email` (for the PDF grid page and `LastName_Title` filename). Seeded from env.
 - **membership** — (user, puzzle) link. The seam that lets us add users later without a one-way door.
-- **puzzle** — size (w×h), `symmetry_enabled`, status (`idea`/`filling`/`cluing`/`ready`/`submitted`), `last_edited_by`, `last_edited_at`.
+- **puzzle** — `title`, size (w×h), `symmetry_enabled`, status (`idea`/`filling`/`cluing`/`ready`/`submitted`), `last_edited_by`, `last_edited_at`.
 - **cell** — puzzle ref, (row, col), `letter`, `is_block`, **`rebus`** (multi-char), **`is_circled`**, **`is_shaded`**.
   Rebus/circle/shade are present **from day one** even though their UI lands later (M4+), to avoid a migration under live data.
 - **entry** — puzzle ref, direction (across/down), `number`, ordered slot cells, **`is_theme`** (seed/protected) flag.
@@ -69,16 +69,28 @@ Server-authoritative over `ws`. State lives in SQLite; the server is the single 
   If we ever need true multi-user merge, operations are already discrete and server-authoritative, so CRDT/OT
   could be introduced behind the same op interface without reworking storage.
 
+## NYT submission requirements (verified from the submission guide)
+
+The submission guide page is captcha-walled to automated fetches, but the requirements were
+supplied directly and are now treated as authoritative (no longer "to-verify"):
+
+- **Deliverable is a PDF only.** `.puz` is our portable interchange/reference format, not the submission artifact.
+- **Limits (15×15):** max **78 words** AND max **42 black squares**. Sunday is 21×21 (~140 words).
+  Themeless 15×15 convention ~72 words. All encoded as named config constants in stats (#10).
+- **Symmetry:** 180° rotational black-square symmetry (our default).
+- **All-over interlock:** no isolated sections — white squares must form one connected region.
+  New pure connectivity check in stats (#10), gated in validation (#21).
+- **PDF layout:** clues double-spaced on the left with answer words in a far-right column; down clues
+  need not start a new page; grid page carries the numbered filled grid + constructor name/address/email;
+  filename `LastName_PuzzleTitle.pdf`. Implemented to spec in #23.
+- **Queue limit:** max 3 pending submissions (operational note; not enforced in-app).
+
 ## Open items / flags from planning
 
-- **NYT limits & submission format must be re-verified against the live NYT page** (it was
-  captcha-walled during planning). The cited limits — **78** words themed / **72** themeless (15×15),
-  **140** (21×21) — are encoded as named config constants and treated as *to-verify*, owned by the
-  NYT-PDF issue (#23) and consumed by stats (#10) and validation (#21).
 - **Word lists are per-install and gitignored** — licensing may be unclear; never committed.
+  Reference list sources are in the NYT constructor resource guide.
 - **Litestream** is heavier than strictly necessary for two users, but justified by "don't lose
   NYT-bound work"; sized to not block auth/scaffold.
-
 ## Backlog
 
 Nine milestones (M0–M8) tracked as GitHub milestones; every issue carries Context / Scope /
