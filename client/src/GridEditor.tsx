@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Cell, ClueStatus, Puzzle } from "@crossy/shared";
 import { ClueSidebar, type EntryView } from "./ClueSidebar";
 import { fetchExportData, exportPuz, exportPdf } from "./export";
+import { OnScreenKeyboard } from "./OnScreenKeyboard";
+import { useIsPhone } from "./useViewport";
 import { useSync } from "./useSync";
 
 type Dir = "across" | "down";
@@ -23,6 +25,7 @@ export function GridEditor({ puzzleId, onBack }: Props) {
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
   const [cells, setCells] = useState<Map<string, Cell>>(new Map());
   const [numbers, setNumbers] = useState<Record<string, number>>({});
+  const isPhone = useIsPhone();
   const [cursor, setCursor] = useState<{ row: number; col: number }>({ row: 0, col: 0 });
   const [dir, setDir] = useState<Dir>("across");
   const [entries, setEntries] = useState<EntryView[]>([]);
@@ -138,34 +141,49 @@ export function GridEditor({ puzzleId, onBack }: Props) {
     }));
   }
 
+  // Reusable typing actions, shared by the physical keyboard and the on-screen one.
+  function typeLetter(ch: string) {
+    const { row, col } = cursor;
+    if (cellAt(row, col)?.isBlock) return;
+    void putLetter(row, col, ch.toUpperCase());
+    setCursor(advance(row, col));
+  }
+  function deleteLetter() {
+    const { row, col } = cursor;
+    void putLetter(row, col, null);
+    move(dir === "across" ? 0 : -1, dir === "across" ? -1 : 0);
+  }
+  function toggleDir() {
+    setDir((d) => (d === "across" ? "down" : "across"));
+  }
+  function toggleBlockAtCursor() {
+    void toggleBlock(cursor.row, cursor.col);
+  }
+
   function onKeyDown(e: React.KeyboardEvent) {
     if (!puzzle) return;
-    const { row, col } = cursor;
     if (e.key === "ArrowRight") return move(0, 1);
     if (e.key === "ArrowLeft") return move(0, -1);
     if (e.key === "ArrowUp") return move(-1, 0);
     if (e.key === "ArrowDown") return move(1, 0);
     if (e.key === " ") {
       e.preventDefault();
-      setDir((d) => (d === "across" ? "down" : "across"));
+      toggleDir();
       return;
     }
     if (e.key === ".") {
       e.preventDefault();
-      void toggleBlock(row, col);
+      toggleBlockAtCursor();
       return;
     }
     if (e.key === "Backspace") {
       e.preventDefault();
-      void putLetter(row, col, null);
-      move(dir === "across" ? 0 : -1, dir === "across" ? -1 : 0);
+      deleteLetter();
       return;
     }
     if (/^[a-zA-Z]$/.test(e.key)) {
       e.preventDefault();
-      if (cellAt(row, col)?.isBlock) return;
-      void putLetter(row, col, e.key.toUpperCase());
-      setCursor(advance(row, col));
+      typeLetter(e.key);
     }
   }
 
@@ -179,6 +197,25 @@ export function GridEditor({ puzzleId, onBack }: Props) {
     setCursor({ row: first.row, col: first.col });
     svgRef.current?.focus();
   }
+
+  // Prev/next entry within the current direction (wraps).
+  function stepEntry(delta: number) {
+    const list = entries
+      .filter((e) => e.direction === dir)
+      .sort((a, b) => a.number - b.number);
+    if (list.length === 0) return;
+    const idx = activeEntry ? list.findIndex((e) => e.id === activeEntry.id) : -1;
+    const next = list[(idx + delta + list.length) % list.length]!;
+    selectEntry(next);
+  }
+
+  // Current clue text for the active entry (phone shows one clue at a time).
+  const activeClueText = activeEntry
+    ? (() => {
+        const letters = activeEntry.cells.map((c) => cells.get(key(c.row, c.col))?.letter || "_").join("");
+        return `${activeEntry.number} ${activeEntry.direction} · ${letters}`;
+      })()
+    : "Select a cell";
 
   if (error) {
     return (
@@ -202,6 +239,77 @@ export function GridEditor({ puzzleId, onBack }: Props) {
 
   const w = puzzle.width * CELL;
   const h = puzzle.height * CELL;
+
+  const pz = puzzle;
+  const gridSvg = renderGrid();
+  function renderGrid() {
+    return (
+      <svg
+        ref={svgRef}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        width="100%"
+        viewBox={`0 0 ${w} ${h}`}
+        style={{ maxWidth: w, border: "2px solid #111", outline: "none", touchAction: "manipulation" }}
+        role="grid"
+        aria-label="crossword grid"
+      >
+        {Array.from({ length: pz.height }).map((_, r) =>
+          Array.from({ length: pz.width }).map((__, c) => {
+            const cell = cellAt(r, c);
+            const isBlock = cell?.isBlock ?? false;
+            const isCursor = cursor.row === r && cursor.col === c;
+            return (
+              <g key={key(r, c)} onClick={() => { setCursor({ row: r, col: c }); svgRef.current?.focus(); }}>
+                <rect x={c * CELL} y={r * CELL} width={CELL} height={CELL} fill={isBlock ? "#111" : isCursor ? "#cfe8ff" : "#fff"} stroke="#999" strokeWidth={0.5} />
+                {!isBlock && numbers[key(r, c)] && (
+                  <text x={c * CELL + 2} y={r * CELL + 9} fontSize={CELL * 0.26} fontFamily="system-ui, sans-serif" fill="#333">{numbers[key(r, c)]}</text>
+                )}
+                {cell?.isCircled && !isBlock && (
+                  <circle cx={c * CELL + CELL / 2} cy={r * CELL + CELL / 2} r={CELL / 2 - 2} fill="none" stroke="#333" strokeWidth={0.75} />
+                )}
+                {!isBlock && (cell?.rebus ?? cell?.letter) && (
+                  <text x={c * CELL + CELL / 2} y={r * CELL + CELL * 0.72} textAnchor="middle" fontSize={cell?.rebus ? CELL * 0.4 : CELL * 0.6} fontFamily="system-ui, sans-serif">{cell?.rebus ?? cell?.letter}</text>
+                )}
+              </g>
+            );
+          }),
+        )}
+        {peers.filter((p) => p.cursor).map((p) => (
+          <rect key={`peer-${p.userId}`} x={p.cursor!.col * CELL + 1} y={p.cursor!.row * CELL + 1} width={CELL - 2} height={CELL - 2} fill="none" stroke={peerColor(p.userId)} strokeWidth={2.5} pointerEvents="none" />
+        ))}
+      </svg>
+    );
+  }
+
+  if (isPhone) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100dvh", margin: "-1.5rem", touchAction: "manipulation" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderBottom: "1px solid #ddd" }}>
+          <button onClick={onBack}>Back</button>
+          <strong style={{ flex: 1, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {puzzle.title || `Puzzle #${puzzle.id}`}
+          </strong>
+          <span style={{ fontSize: 11, color: connected ? "#2b8a3e" : "#999" }}>{connected ? "live" : ""}</span>
+        </div>
+        <div style={{ flex: "0 0 auto", padding: 8, display: "flex", justifyContent: "center" }}>
+          <div style={{ width: "100%", maxWidth: "min(92vw, 60dvh)" }}>{gridSvg}</div>
+        </div>
+        <div onClick={toggleDir} style={{ flex: 1, minHeight: 36, padding: "8px 12px", background: "#f5f9ff", borderTop: "1px solid #e0e0e0", fontSize: 15, display: "flex", alignItems: "center" }}>
+          {activeClueText}
+        </div>
+        <OnScreenKeyboard
+          direction={dir}
+          onLetter={typeLetter}
+          onDelete={deleteLetter}
+          onToggleBlock={toggleBlockAtCursor}
+          onToggleDir={toggleDir}
+          onPrevEntry={() => stepEntry(-1)}
+          onNextEntry={() => stepEntry(1)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -231,76 +339,7 @@ export function GridEditor({ puzzleId, onBack }: Props) {
       </p>
       <div style={{ display: "flex", gap: "1.5rem", alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ flex: "1 1 360px", minWidth: 0, maxWidth: w }}>
-      <svg
-        ref={svgRef}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        width="100%"
-        viewBox={`0 0 ${w} ${h}`}
-        style={{ maxWidth: w, border: "2px solid #111", outline: "none", touchAction: "manipulation" }}
-        role="grid"
-        aria-label="crossword grid"
-      >
-        {Array.from({ length: puzzle.height }).map((_, r) =>
-          Array.from({ length: puzzle.width }).map((__, c) => {
-            const cell = cellAt(r, c);
-            const isBlock = cell?.isBlock ?? false;
-            const isCursor = cursor.row === r && cursor.col === c;
-            return (
-              <g key={key(r, c)} onClick={() => { setCursor({ row: r, col: c }); svgRef.current?.focus(); }}>
-                <rect
-                  x={c * CELL}
-                  y={r * CELL}
-                  width={CELL}
-                  height={CELL}
-                  fill={isBlock ? "#111" : isCursor ? "#cfe8ff" : "#fff"}
-                  stroke="#999"
-                  strokeWidth={0.5}
-                />
-                {!isBlock && numbers[key(r, c)] && (
-                  <text
-                    x={c * CELL + 2}
-                    y={r * CELL + 9}
-                    fontSize={CELL * 0.26}
-                    fontFamily="system-ui, sans-serif"
-                    fill="#333"
-                  >
-                    {numbers[key(r, c)]}
-                  </text>
-                )}
-                {cell?.isCircled && !isBlock && (
-                  <circle cx={c * CELL + CELL / 2} cy={r * CELL + CELL / 2} r={CELL / 2 - 2} fill="none" stroke="#333" strokeWidth={0.75} />
-                )}
-                {!isBlock && (cell?.rebus ?? cell?.letter) && (
-                  <text
-                    x={c * CELL + CELL / 2}
-                    y={r * CELL + CELL * 0.72}
-                    textAnchor="middle"
-                    fontSize={cell?.rebus ? CELL * 0.4 : CELL * 0.6}
-                    fontFamily="system-ui, sans-serif"
-                  >
-                    {cell?.rebus ?? cell?.letter}
-                  </text>
-                )}
-              </g>
-            );
-          }),
-        )}
-        {/* Peer cursors on top of the grid. */}
-        {peers.filter((p) => p.cursor).map((p) => (
-          <rect
-            key={`peer-${p.userId}`}
-            x={p.cursor!.col * CELL + 1}
-            y={p.cursor!.row * CELL + 1}
-            width={CELL - 2}
-            height={CELL - 2}
-            fill="none"
-            stroke={peerColor(p.userId)}
-            strokeWidth={2.5}
-            pointerEvents="none"
-          />
-        ))}
-      </svg>
+      {gridSvg}
       </div>
       <ClueSidebar
         entries={entries}
