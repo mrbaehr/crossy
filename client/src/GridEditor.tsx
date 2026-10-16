@@ -4,6 +4,7 @@ import { ClueSidebar, type EntryView } from "./ClueSidebar";
 import { fetchExportData, exportPuz, exportPdf } from "./export";
 import { OnScreenKeyboard } from "./OnScreenKeyboard";
 import { useIsPhone } from "./useViewport";
+import { cachePuzzle, getCachedPuzzle, queueEdit, flushQueue, queueLength, uuid } from "./offline";
 import { useSync } from "./useSync";
 
 type Dir = "across" | "down";
@@ -31,17 +32,13 @@ export function GridEditor({ puzzleId, onBack }: Props) {
   const [entries, setEntries] = useState<EntryView[]>([]);
   const [clueStatus, setClueStatus] = useState<Record<number, ClueStatus>>({});
   const [error, setError] = useState<string | null>(null);
+  const [online, setOnline] = useState<boolean>(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const [pending, setPending] = useState<number>(0);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const key = (r: number, c: number) => `${r},${c}`;
 
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/puzzles/${puzzleId}`, { credentials: "same-origin" });
-    if (!res.ok) {
-      setError(res.status === 401 ? "Please log in." : `Failed to load (${res.status}).`);
-      return;
-    }
-    const data = await res.json();
+  function applyData(data: any) {
     setPuzzle(data.puzzle);
     const map = new Map<string, Cell>();
     for (const cell of data.cells as Cell[]) map.set(key(cell.row, cell.col), cell);
@@ -49,6 +46,26 @@ export function GridEditor({ puzzleId, onBack }: Props) {
     setNumbers(data.numbers ?? {});
     setEntries(data.entries ?? []);
     setClueStatus(data.clueStatus ?? {});
+  }
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/puzzles/${puzzleId}`, { credentials: "same-origin" });
+      if (res.status === 401) return setError("Please log in.");
+      if (!res.ok) throw new Error(String(res.status));
+      const data = await res.json();
+      applyData(data);
+      void cachePuzzle(puzzleId, data); // stash for offline
+    } catch {
+      // Offline (or server unreachable): fall back to the cached copy.
+      const cached = await getCachedPuzzle(puzzleId);
+      if (cached) {
+        applyData(cached);
+      } else {
+        setError("Offline and this puzzle isn't cached yet. Open it once online.");
+      }
+    }
+    setPending(await queueLength());
   }, [puzzleId]);
 
   // Refresh clue statuses (drafts/approvals change). Called on entry changes,
@@ -70,6 +87,27 @@ export function GridEditor({ puzzleId, onBack }: Props) {
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  // Online/offline tracking + flush the offline queue on reconnect.
+  useEffect(() => {
+    async function goOnline() {
+      setOnline(true);
+      const n = await flushQueue();
+      setPending(await queueLength());
+      if (n > 0) void load(); // re-sync authoritative state after replay
+    }
+    function goOffline() {
+      setOnline(false);
+    }
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    // Attempt a flush on mount in case we reloaded with a pending queue.
+    if (navigator.onLine) void goOnline();
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
   }, [load]);
 
   function cellAt(r: number, c: number): Cell | undefined {
@@ -100,23 +138,32 @@ export function GridEditor({ puzzleId, onBack }: Props) {
   }, [cursor, sendCursor]);
 
   async function putLetter(r: number, c: number, letter: string | null) {
-    const res = await fetch(`/api/puzzles/${puzzleId}/letter`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ row: r, col: c, letter }),
-    });
-    if (res.ok) mergeCells((await res.json()).cells);
+    // Optimistic local update (also makes the online path feel instant).
+    const prev = cells.get(key(r, c));
+    mergeCells([{ row: r, col: c, letter, isBlock: false, rebus: prev?.rebus ?? null, isCircled: prev?.isCircled ?? false, isShaded: prev?.isShaded ?? false } as Cell]);
+    try {
+      const res = await fetch(`/api/puzzles/${puzzleId}/letter`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ row: r, col: c, letter }),
+      });
+      if (res.ok) mergeCells((await res.json()).cells);
+    } catch {
+      await queueEdit({ id: uuid(), puzzleId, kind: "letter", row: r, col: c, letter, ts: Date.now() });
+      setPending(await queueLength());
+    }
   }
 
   async function toggleBlock(r: number, c: number) {
-    const res = await fetch(`/api/puzzles/${puzzleId}/block`, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      credentials: "same-origin",
-      body: JSON.stringify({ row: r, col: c }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch(`/api/puzzles/${puzzleId}/block`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ row: r, col: c }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
       const data = await res.json();
       mergeCells(data.cells);
       if (data.numbers) setNumbers(data.numbers);
@@ -124,6 +171,23 @@ export function GridEditor({ puzzleId, onBack }: Props) {
         setEntries(data.entries);
         void refreshClues();
       }
+    } catch {
+      // Offline: optimistic local toggle of the cell (+ symmetric partner).
+      // Numbering won't recompute until reconnect — acceptable for the stopgap.
+      if (!puzzle) return;
+      const existing = cells.get(key(r, c));
+      const nowBlock = !existing?.isBlock;
+      const updates: Cell[] = [{ row: r, col: c, letter: null, isBlock: nowBlock, rebus: null, isCircled: false, isShaded: false } as Cell];
+      if (puzzle.symmetryEnabled) {
+        const pr = puzzle.height - 1 - r;
+        const pc = puzzle.width - 1 - c;
+        if (!(pr === r && pc === c)) {
+          updates.push({ row: pr, col: pc, letter: null, isBlock: nowBlock, rebus: null, isCircled: false, isShaded: false } as Cell);
+        }
+      }
+      mergeCells(updates);
+      await queueEdit({ id: uuid(), puzzleId, kind: "block", row: r, col: c, ts: Date.now() });
+      setPending(await queueLength());
     }
   }
 
@@ -290,7 +354,9 @@ export function GridEditor({ puzzleId, onBack }: Props) {
           <strong style={{ flex: 1, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {puzzle.title || `Puzzle #${puzzle.id}`}
           </strong>
-          <span style={{ fontSize: 11, color: connected ? "#2b8a3e" : "#999" }}>{connected ? "live" : ""}</span>
+          <span style={{ fontSize: 11, color: !online ? "#e8590c" : connected ? "#2b8a3e" : "#999" }}>
+            {!online ? (pending ? `offline ${pending}\u2191` : "offline") : connected ? "live" : ""}
+          </span>
         </div>
         <div style={{ flex: "0 0 auto", padding: 8, display: "flex", justifyContent: "center" }}>
           <div style={{ width: "100%", maxWidth: "min(92vw, 60dvh)" }}>{gridSvg}</div>
@@ -325,8 +391,8 @@ export function GridEditor({ puzzleId, onBack }: Props) {
         <button onClick={() => void doExport("pdf-filled")} style={{ fontSize: 12 }}>⬇ PDF (filled)</button>
       </div>
       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-        <span style={{ fontSize: 12, color: connected ? "#2b8a3e" : "#999" }}>
-          {connected ? "● live" : "○ connecting…"}
+        <span style={{ fontSize: 12, color: !online ? "#e8590c" : connected ? "#2b8a3e" : "#999" }}>
+          {!online ? (pending ? `● offline · ${pending} queued` : "● offline") : connected ? "● live" : "○ connecting…"}
         </span>
         {peers.map((p) => (
           <span key={p.userId} style={{ fontSize: 12, color: peerColor(p.userId) }}>
